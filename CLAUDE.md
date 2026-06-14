@@ -95,7 +95,19 @@ ir-data --provider all "Apple"     # 米+日+英+EU 同時
 
 ## 次の TODO（未着手・ユーザーと相談中）
 
-1. **実データでキヤノン・ソニー取得** — egress 許可済み環境で実行し結果検証。
+0. **【決定・最優先】EDINET DB の MCP 接続で日本データ取得**（2026-06-14 合意）
+   - 方針: 公式 EDINET 直結に苦戦中（egress 許可が新セッションからしか効かない）。
+     代替として **EDINET DB (edinetdb.jp)** の **MCP コネクタ**を使う。
+   - EDINET DB は金融庁 EDINET を名寄せ・構造化した**第三者アグリゲータ**（一次情報そのもの
+     ではない点に留意）。無料 API/MCP、無料枠は 1 日上限あり。
+   - **MCP コネクタ通信は Anthropic 経由 → egress 許可リスト不要**（これが採用理由＝最速）。
+   - ユーザー作業: edinetdb.jp で API キー取得 → MCP コネクタを Claude に登録 → 有効化した
+     新セッション開始。コネクタ登録はコンテナ内からは不可。
+   - 接続後の自分の作業: `mcp__*edinet*` ツールでキヤノン(7203でなく証券7751=キヤノン,
+     ソニーG=6758)等を取得 → **取得結果を既存パイプラインへ流し込むアダプタ**を書き、
+     `export_to_excel` / `export_to_markdown` / `Repository.store` で構造化出力する。
+     （MCP の戻り値 → `CompanyInfo`/`FinancialFact` へ変換する薄い変換層を追加）
+1. **実データでキヤノン・ソニー取得** — 上記 MCP 経由、または egress 許可済み環境で公式直結。
    EDINET コード: キヤノン=E01735(証券7751), ソニーグループ=E01777(証券6758)。
 2. **セグメント名の日本語化** — 現状 `dimension` は生の XBRL member 名
    (`ImagingReportableSegmentsMember` 等)。書類のラベルリンク (定義) を解析して
