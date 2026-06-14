@@ -1,28 +1,36 @@
 """Companies House プロバイダ (英国・公式・無料キー必須).
 
 英国法人の公的データを提供する公式 API。会社検索・会社プロファイル
-(SIC 業種 / 所在国 / 会計年度) ・提出書類履歴を取得する。
+(SIC 業種 / 所在国 / 会計年度) ・提出書類履歴を取得し、最新の会計報告
+(iXBRL) を解析して **数値財務** を抽出する。
 
 認証: API キーを Basic 認証のユーザ名 (パスワード空) として送る。
 キー取得 (無料): https://developer.company-information.service.gov.uk/
 
-注: 数値の財務データは提出書類 (会計報告) 内の **iXBRL** に含まれるため、
-数値抽出は iXBRL 解析を要する (本フェーズではメタデータと提出履歴まで)。
+数値財務は提出書類 (会計報告) 内の **iXBRL** に埋め込まれている。Document API
+からその XHTML を取得し ``ir_data.ixbrl`` で全ファクトを構造化する。iXBRL が
+取得・解析できない場合 (PDF のみ提出、egress 制限等) はメタデータと提出履歴に
+フォールバックし note でその旨を伝える。
 """
 
 from __future__ import annotations
 
 import base64
+import logging
 from typing import Dict, List, Optional
 
 from ..http_client import HttpClient
+from ..ixbrl import parse_ixbrl
 from ..types import CompanyData, CompanyInfo, FinancialFact
 from .base import FinancialDataProvider
+
+logger = logging.getLogger("ir_data")
 
 BASE = "https://api.company-information.service.gov.uk"
 SEARCH_URL = BASE + "/search/companies"
 COMPANY_URL = BASE + "/company/{number}"
 FILING_URL = BASE + "/company/{number}/filing-history"
+IXBRL_CONTENT_TYPE = "application/xhtml+xml"
 
 
 class CompaniesHouseProvider(FinancialDataProvider):
@@ -95,23 +103,97 @@ class CompaniesHouseProvider(FinancialDataProvider):
             headers=self._auth_headers(),
         ) or {}
         items = filings.get("items", []) if isinstance(filings, dict) else []
-        # 会計報告の提出有無を「提出件数」として 1 ファクトに集約 (数値抽出は iXBRL 解析が次段階)。
+        # 会計報告の提出有無を「提出件数」として 1 ファクトに集約。
         accounts = [i for i in items if (i.get("type") or "").upper().startswith("AA")]
-        if accounts:
-            latest = accounts[0]
+        if not accounts:
+            result.note = "Companies House: 会計報告 (AA) の提出履歴が見つかりませんでした。"
+            return result
+
+        latest = accounts[0]
+        result.facts.append(
+            FinancialFact(
+                cik=company.cik,
+                concept="AccountsFilings",
+                label="会計報告 提出件数 (最新提出日含む)",
+                unit="count",
+                value=float(len(accounts)),
+                filed=latest.get("date"),
+                form=latest.get("type"),
+                source=self.name,
+            )
+        )
+
+        # 最新会計報告の iXBRL を解析して数値財務を取り込む。
+        try:
+            ixbrl_facts = self._fetch_ixbrl_facts(latest, years)
+        except Exception as err:  # noqa: BLE001 - フォールバック (note) で継続
+            logger.debug("iXBRL 取得失敗 [%s]: %s", company.cik, err)
+            ixbrl_facts = []
+            result.note = (
+                "Companies House: メタデータと提出履歴を取得。iXBRL 取得に失敗したため "
+                f"数値財務は未取得 ({err})。"
+            )
+
+        for f in ixbrl_facts:
+            fy = int(f.period_end[:4]) if f.period_end and f.period_end[:4].isdigit() else None
             result.facts.append(
                 FinancialFact(
                     cik=company.cik,
-                    concept="AccountsFilings",
-                    label="会計報告 提出件数 (最新提出日含む)",
-                    unit="count",
-                    value=float(len(accounts)),
-                    filed=latest.get("date"),
+                    concept=f.concept,
+                    label=f.label,
+                    unit=f.unit,
+                    value=f.value,
+                    value_text=f.value_text,
+                    fy=fy,
+                    period_start=f.period_start,
+                    period_end=f.period_end,
                     form=latest.get("type"),
+                    filed=latest.get("date"),
+                    dimension=f.dimension,
+                    consolidation=f.consolidation,
+                    context_id=f.context_id,
                     source=self.name,
                 )
             )
-        result.note = (
-            "Companies House: メタデータと提出履歴を取得。数値財務は iXBRL 解析が必要 (次フェーズ)。"
-        )
+
+        if ixbrl_facts:
+            n_num = sum(1 for f in ixbrl_facts if f.value is not None)
+            result.note = (
+                f"Companies House: 最新会計報告の iXBRL から {len(ixbrl_facts)} 件 "
+                f"(数値 {n_num} 件) を抽出。"
+            )
+        elif result.note is None:
+            result.note = (
+                "Companies House: メタデータと提出履歴を取得。最新会計報告に iXBRL "
+                "(XHTML) が無いため数値財務は未取得 (PDF のみ等)。"
+            )
         return result
+
+    def _fetch_ixbrl_facts(self, filing: Dict, years: Optional[List[int]]):
+        """提出書類の Document API から iXBRL を取得し解析する。
+
+        会計報告のメタデータ → ``application/xhtml+xml`` リソースの content を取得。
+        XHTML が提供されない (PDF のみ) 場合は空リストを返す。
+        """
+        meta_url = ((filing.get("links") or {}).get("document_metadata")) or ""
+        if not meta_url:
+            return []
+        meta = self.http.get_json(meta_url, headers=self._auth_headers()) or {}
+        resources = meta.get("resources") or {}
+        if IXBRL_CONTENT_TYPE not in resources:
+            return []
+        raw = self.http.get_bytes(
+            meta_url.rstrip("/") + "/content",
+            headers={**self._auth_headers(), "Accept": IXBRL_CONTENT_TYPE},
+        )
+        if not raw:
+            return []
+        facts = parse_ixbrl(raw)
+        if years:
+            wanted = set(years)
+            facts = [
+                f for f in facts
+                if not (f.period_end and f.period_end[:4].isdigit())
+                or int(f.period_end[:4]) in wanted
+            ]
+        return facts
