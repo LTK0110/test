@@ -142,38 +142,38 @@ class SecEdgarProvider(FinancialDataProvider):
         if not data:
             result.error = "companyfacts が取得できませんでした"
             return result
-        gaap = ((data.get("facts") or {}).get("us-gaap") or {}) if isinstance(data, dict) else {}
-        wanted = set(concepts) if concepts else None
+        all_facts = (data.get("facts") or {}) if isinstance(data, dict) else {}
+        wanted = set(concepts) if concepts else None  # None = 全概念を取得
         year_set = set(years) if years else None
-        for concept, payload in gaap.items():
-            if wanted is not None and concept not in wanted:
-                continue
-            label = payload.get("label") or concept
-            for unit, entries in (payload.get("units") or {}).items():
-                for e in entries:
-                    fy = e.get("fy")
-                    fp = e.get("fp")
-                    if fp != "FY":  # 年次 (10-K) のみ。四半期は除外。
-                        continue
-                    if year_set is not None and fy not in year_set:
-                        continue
-                    result.facts.append(
-                        FinancialFact(
-                            cik=company.cik,
-                            concept=concept,
-                            label=label,
-                            unit=unit,
-                            value=float(e.get("val")) if e.get("val") is not None else 0.0,
-                            fy=fy,
-                            fp=fp,
-                            period_start=e.get("start"),
-                            period_end=e.get("end"),
-                            form=e.get("form"),
-                            filed=e.get("filed"),
-                            source=self.name,
+        # us-gaap / dei / ifrs-full 等、全タクソノミを横断して全データを取り込む。
+        for taxonomy, concepts_map in all_facts.items():
+            for concept, payload in (concepts_map or {}).items():
+                if wanted is not None and concept not in wanted:
+                    continue
+                label = payload.get("label") or concept
+                for unit, entries in (payload.get("units") or {}).items():
+                    for e in entries:
+                        fy = e.get("fy")
+                        if year_set is not None and fy not in year_set:
+                            continue
+                        result.facts.append(
+                            FinancialFact(
+                                cik=company.cik,
+                                concept=f"{taxonomy}:{concept}",
+                                label=label,
+                                unit=unit,
+                                value=float(e.get("val")) if e.get("val") is not None else None,
+                                fy=fy,
+                                fp=e.get("fp"),  # FY / Q1 / Q2 ... (全期間を保持)
+                                period_start=e.get("start"),
+                                period_end=e.get("end"),
+                                form=e.get("form"),
+                                filed=e.get("filed"),
+                                context_id=e.get("frame"),
+                                source=self.name,
+                            )
                         )
-                    )
-        # 同一 (concept, fy) の重複を最新 filed で集約
+        # 同一 (concept, unit, fy, fp, period) の重複を最新 filed で集約 (訂正報告対応)
         result.facts = _dedupe_latest(result.facts)
         return result
 
@@ -181,8 +181,8 @@ class SecEdgarProvider(FinancialDataProvider):
 def _dedupe_latest(facts: List[FinancialFact]) -> List[FinancialFact]:
     best: Dict[str, FinancialFact] = {}
     for f in facts:
-        k = f"{f.concept}:{f.unit}:{f.fy}:{f.period_end}"
+        k = f"{f.concept}:{f.unit}:{f.fy}:{f.fp}:{f.period_start}:{f.period_end}"
         cur = best.get(k)
         if cur is None or (f.filed or "") > (cur.filed or ""):
             best[k] = f
-    return sorted(best.values(), key=lambda f: (f.concept, f.fy or 0))
+    return sorted(best.values(), key=lambda f: (f.concept, f.fy or 0, f.fp or ""))

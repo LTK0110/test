@@ -79,18 +79,19 @@ def test_edinet_search_by_code():
     assert res and res[0].cik == "E12345"
 
 
-def test_edinet_fetch_parses_csv_current_year_only():
+def test_edinet_fetch_parses_all_rows_and_periods():
     prov = make()
     company = prov.search("トヨタ")[0]
     data = prov.fetch_financials(company)
     labels = {f.label for f in data.facts}
-    assert "売上高" in labels and "営業利益" in labels
-    # 前期の行は除外される
-    assert "前期売上高" not in labels
+    # 全行を取り込む (前期行も含む)
+    assert {"売上高", "営業利益", "前期売上高"} <= labels
     rev = next(f for f in data.facts if f.label == "売上高")
     assert rev.value == 45095325000000.0
-    assert rev.fy == 2024 and rev.fp == "FY"
-    # 連結合計なので segment は None
+    assert rev.fy == 2024 and rev.fp == "当期"
+    # 前期行は fy が 1 年前
+    prior = next(f for f in data.facts if f.label == "前期売上高")
+    assert prior.fp == "前期" and prior.fy == 2023
     assert all(f.dimension is None for f in data.facts)
 
 
@@ -128,12 +129,14 @@ def test_edinet_segment_extraction():
     company = prov.search("トヨタ")[0]
     data = prov.fetch_financials(company)
 
-    # 連結合計 1 + セグメント 2 = 3 (個別は除外)
-    assert len(data.facts) == 3
-    consolidated = [f for f in data.facts if f.dimension is None]
+    # 全 4 行を取り込む (連結合計 + セグメント2 + 個別)
+    assert len(data.facts) == 4
     segments = [f for f in data.facts if f.dimension]
-    assert len(consolidated) == 1 and consolidated[0].value == 13000000000000.0
     seg_names = {f.dimension for f in segments}
     assert seg_names == {"ImagingReportableSegmentsMember", "MedicalReportableSegmentsMember"}
-    # 個別 (999) は含まれない
-    assert all(f.value != 999.0 for f in data.facts)
+    # 連結合計 (dimension None かつ 連結)
+    consolidated = next(f for f in data.facts if f.dimension is None and f.consolidation == "連結")
+    assert consolidated.value == 13000000000000.0
+    # 個別行も構造化して保持し、連結区分で判別できる
+    nonconsol = next(f for f in data.facts if f.consolidation == "個別")
+    assert nonconsol.value == 999.0 and nonconsol.dimension is None

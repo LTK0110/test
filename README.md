@@ -82,6 +82,7 @@ ir-data --provider all "Apple"
 | `--limit` | 1 クエリあたりの最大企業数 (既定 20) |
 | `--years` | 対象会計年度 (`2021-2023` または `2021,2022`) |
 | `--excel` | Excel 出力先 (`.xlsx`) |
+| `--markdown` | 全データのまとめ Markdown 出力先 (`.md`) |
 | `--provider` | `sec_edgar`/`edinet`/`companies_house`/`gleif`。カンマ区切り or `all` |
 | `--country` | 国コードで絞り込み (GLEIF 等。例 `DE`) |
 | `--database-url` | 保存先 SQL 接続 URL |
@@ -106,20 +107,34 @@ mssql+pyodbc://user:pass@host/irdata?driver=ODBC+Driver+18+for+SQL+Server  # 要
 
 ### テーブル
 
-- `companies` — 企業の基本情報 (CIK / ティッカー / 取引所 / SIC 業種 / 国 / 決算月)
-- `financial_records` — 財務数値 (概念 × 会計年度、単位付き)。年次 (10-K) を保存
+- `companies` — 企業の基本情報 (識別子 / ティッカー / 取引所 / SIC 業種 / 国 / 決算月)
+- `financial_records` — **取得できる全データ点**を構造化して保存:
+  - `concept`(要素ID/us-gaapタグ) / `label`(項目名) / `unit`
+  - `value`(数値) / `value_text`(テキストブロック等の非数値・叙述情報)
+  - `fy` / `fp`(当期・前期 / FY・Q1…) / `period_start` / `period_end`
+  - `dimension`(事業別/地域別セグメント。NULL=連結合計) / `consolidation`(連結・個別)
+  - `context_id`(XBRL コンテキスト) / `form` / `filed` / `source`
 - `search_runs` — 検索実行の履歴 (監査・再現性)
 
-`(source, cik)` と `(company, concept, unit, fy, period_end)` で **upsert** するため、
-再実行しても重複しません。
+**全科目・全期間・連結/個別・セグメント・テキストブロックまで漏れなく取り込みます**
+(既定は特定科目への絞り込みをしません)。`(source, cik)` と
+`(company, concept, unit, fy, period_end, dimension, consolidation, context_id)`
+で **upsert** するため、再実行しても重複しません。
 
-## Excel 出力
+## 出力
 
-1 ブックに 3 シート:
+### Excel (`--excel`)
+1 ブックに 4 シート:
 
-- **Companies** — 企業一覧 (メタデータ + 取得ファクト数)
-- **Financials** — 財務数値の明細 (long 形式)
-- **Summary** — 主要指標 × 年度のピボット
+- **Companies** — 企業一覧 (メタデータ + 取得データ点数)
+- **Financials** — 全データ点の明細 (long 形式。数値・テキスト・セグメント・連結区分を含む)
+- **Summary** — 連結合計の主要指標 × 年度ピボット (セグメント・個別は除外)
+- **Segments** — 事業別/地域別セグメント × 指標 × 年度
+
+### Markdown (`--markdown`)
+全企業の**全データをまとめた 1 ファイル**。連結財務表・事業別セグメント表に加え、
+EDINET のテキストブロック (事業の内容・経営方針等の**叙述情報**) も HTML 除去のうえ
+収録するため、「まとめデータの全体」を Markdown で取得できます。
 
 ## アーキテクチャ
 

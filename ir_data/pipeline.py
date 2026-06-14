@@ -11,6 +11,7 @@ from .concurrency import run_parallel
 from .config import Config
 from .database import Repository, create_db_engine
 from .excel_export import export_to_excel
+from .markdown_export import export_to_markdown
 from .http_client import HttpClient
 from .models import SearchRun
 from .providers import build_providers
@@ -25,6 +26,7 @@ class PipelineResult:
     companies_found: int
     facts_stored: int
     excel_path: Optional[str]
+    markdown_path: Optional[str] = None
 
 
 class Pipeline:
@@ -67,6 +69,7 @@ class Pipeline:
         limit: int = 20,
         years: Optional[List[int]] = None,
         excel_path: Optional[str] = None,
+        markdown_path: Optional[str] = None,
         store: bool = True,
     ) -> PipelineResult:
         provs = self._resolve_providers(provider)
@@ -114,17 +117,22 @@ class Pipeline:
             self._record_run(queries, mode, companies_found, facts_stored)
             logger.info("DB 保存: 企業 %d 社 / ファクト %d 件", companies_found, facts_stored)
 
-        # 4) Excel 出力
+        # 4) Excel / Markdown 出力
         out_path = None
         if excel_path:
             out_path = export_to_excel(results, excel_path)
             logger.info("Excel 出力: %s", out_path)
+        md_path = None
+        if markdown_path:
+            md_path = export_to_markdown(results, markdown_path)
+            logger.info("Markdown 出力: %s", md_path)
 
         return PipelineResult(
             companies=results,
             companies_found=companies_found,
             facts_stored=facts_stored,
             excel_path=out_path,
+            markdown_path=md_path,
         )
 
     def _record_run(self, queries, mode, companies_found, facts_stored) -> None:

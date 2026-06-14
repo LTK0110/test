@@ -32,17 +32,26 @@ def test_search_fulltext_keyword(http):
     assert "0000320193" in ciks and "0000789019" in ciks
 
 
-def test_fetch_financials_annual_only(http):
+def test_fetch_financials_captures_all_periods(http):
     prov = SecEdgarProvider(http)
     company = prov.search("AAPL", mode="ticker")[0]
     data = prov.fetch_financials(company, concepts=["Revenues", "NetIncomeLoss"])
-    # 四半期 (Q1) は除外され、年次のみ
-    assert all(f.fp == "FY" for f in data.facts)
+    # 全期間を取り込む (四半期 Q1 も含む)
+    assert any(f.fp == "Q1" for f in data.facts)
+    assert any(f.fp == "FY" for f in data.facts)
+    # 概念はタクソノミ接頭辞付きで保持
     concepts = {f.concept for f in data.facts}
-    assert concepts == {"Revenues", "NetIncomeLoss"}
+    assert concepts == {"us-gaap:Revenues", "us-gaap:NetIncomeLoss"}
     # メタデータが補完される
     assert data.info.sic_description == "Electronic Computers"
     assert data.info.exchange == "Nasdaq"
+
+
+def test_fetch_financials_all_concepts_when_unfiltered(http):
+    prov = SecEdgarProvider(http)
+    company = prov.search("AAPL", mode="ticker")[0]
+    data = prov.fetch_financials(company)  # concepts 未指定 = 全概念
+    assert {"us-gaap:Revenues", "us-gaap:NetIncomeLoss"} <= {f.concept for f in data.facts}
 
 
 def test_fetch_financials_year_filter(http):

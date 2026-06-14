@@ -49,25 +49,29 @@ class FinancialRecord(Base):
     __tablename__ = "financial_records"
     __table_args__ = (
         UniqueConstraint(
-            "company_id", "concept", "unit", "fy", "period_end", "dimension",
+            "company_id", "concept", "unit", "fy", "period_end",
+            "dimension", "consolidation", "context_id",
             name="uq_fact",
         ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
-    concept: Mapped[str] = mapped_column(String(128), index=True)
-    label: Mapped[str] = mapped_column(String(256))
-    unit: Mapped[str] = mapped_column(String(32))
-    value: Mapped[float] = mapped_column(Float)
+    concept: Mapped[str] = mapped_column(String(256), index=True)
+    label: Mapped[str] = mapped_column(Text)
+    unit: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    value_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     fy: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    fp: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    fp: Mapped[str | None] = mapped_column(String(16), nullable=True)
     period_start: Mapped[str | None] = mapped_column(String(16), nullable=True)
     period_end: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    form: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    form: Mapped[str | None] = mapped_column(String(64), nullable=True)
     filed: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # 事業別/地域別セグメント (XBRL ディメンション)。NULL = 連結合計。
-    dimension: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
+    dimension: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    consolidation: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    context_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
     source: Mapped[str] = mapped_column(String(32))
 
     company: Mapped["Company"] = relationship(back_populates="facts")

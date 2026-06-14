@@ -17,8 +17,8 @@ except Exception:  # pragma: no cover
 # SEC EDGAR は User-Agent の明示を必須としている (会社名/用途 + 連絡先メール)。
 DEFAULT_USER_AGENT = "ir-data-tool (contact: set IR_DATA_USER_AGENT)"
 
-# 既定で取得する US-GAAP の主要概念。
-DEFAULT_CONCEPTS: List[str] = [
+# 主要 US-GAAP 概念 (任意の絞り込み用プリセット)。既定は「全データ取得」のため未使用。
+PRESET_KEY_CONCEPTS: List[str] = [
     "Revenues",
     "RevenueFromContractWithCustomerExcludingAssessedTax",
     "GrossProfit",
@@ -44,7 +44,8 @@ class Config:
     max_workers: int = field(default_factory=lambda: int(os.getenv("IR_DATA_MAX_WORKERS", "8")))
     request_timeout: float = field(default_factory=lambda: float(os.getenv("IR_DATA_TIMEOUT", "30")))
     max_retries: int = field(default_factory=lambda: int(os.getenv("IR_DATA_MAX_RETRIES", "3")))
-    concepts: List[str] = field(default_factory=lambda: list(DEFAULT_CONCEPTS))
+    # None = 取得可能な全概念を構造化して取り込む (既定)。絞り込みたい場合のみ概念名を列挙。
+    concepts: Optional[List[str]] = None
 
     # 各公式 API の無料キー (取得元により要否が異なる)。
     edinet_api_key: Optional[str] = field(default_factory=lambda: os.getenv("EDINET_API_KEY"))

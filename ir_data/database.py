@@ -49,24 +49,32 @@ class Repository:
         return company
 
     def upsert_facts(self, session: Session, company: Company, facts) -> int:
-        # 既存ファクトを一意キーで索引化 (セグメント次元を含む)
+        def kf(concept, unit, fy, period_end, dimension, consolidation, context_id):
+            return (concept, unit, fy, period_end, dimension, consolidation, context_id)
+
+        # 既存ファクトを一意キーで索引化 (期間・セグメント・連結区分・コンテキスト込み)
         existing = {
-            (f.concept, f.unit, f.fy, f.period_end, f.dimension): f
+            kf(f.concept, f.unit, f.fy, f.period_end, f.dimension, f.consolidation, f.context_id): f
             for f in session.scalars(
                 select(FinancialRecord).where(FinancialRecord.company_id == company.id)
             )
         }
         count = 0
         for fact in facts:
-            k = (fact.concept, fact.unit, fact.fy, fact.period_end, fact.dimension)
+            k = kf(fact.concept, fact.unit, fact.fy, fact.period_end,
+                   fact.dimension, fact.consolidation, fact.context_id)
             rec = existing.get(k)
             if rec is None:
-                rec = FinancialRecord(company_id=company.id, concept=fact.concept,
-                                      unit=fact.unit, fy=fact.fy, period_end=fact.period_end,
-                                      dimension=fact.dimension)
+                rec = FinancialRecord(
+                    company_id=company.id, concept=fact.concept, unit=fact.unit,
+                    fy=fact.fy, period_end=fact.period_end, dimension=fact.dimension,
+                    consolidation=fact.consolidation, context_id=fact.context_id,
+                )
                 session.add(rec)
+                existing[k] = rec
             rec.label = fact.label
             rec.value = fact.value
+            rec.value_text = fact.value_text
             rec.fp = fact.fp
             rec.period_start = fact.period_start
             rec.form = fact.form

@@ -41,10 +41,13 @@ def _facts_frame(results: List[CompanyData]) -> pd.DataFrame:
                 "label": f.label,
                 "unit": f.unit,
                 "value": f.value,
+                "value_text": f.value_text,
                 "fy": f.fy,
                 "fp": f.fp,
                 "period_end": f.period_end,
                 "segment": f.dimension,  # None=連結合計、値あり=事業別/地域別
+                "consolidation": f.consolidation,
+                "context_id": f.context_id,
                 "form": f.form,
                 "filed": f.filed,
                 "source": f.source,
@@ -54,9 +57,10 @@ def _facts_frame(results: List[CompanyData]) -> pd.DataFrame:
 
 def _pivot_frame(facts: pd.DataFrame) -> pd.DataFrame:
     """主要指標 × 年度のピボット (連結合計のみ、概観用)."""
-    if facts.empty:
+    if facts.empty or "value" not in facts:
         return pd.DataFrame()
-    consolidated = facts[facts["segment"].isna()]
+    # 連結合計のみ: セグメント内訳と個別 (非連結) と非数値を除外
+    consolidated = facts[facts["segment"].isna() & (facts["consolidation"] != "個別") & facts["value"].notna()]
     if consolidated.empty:
         return pd.DataFrame()
     pivot = consolidated.pivot_table(
@@ -72,7 +76,7 @@ def _segments_frame(facts: pd.DataFrame) -> pd.DataFrame:
     """事業別/地域別セグメント × 指標のピボット (セグメント行のみ)."""
     if facts.empty:
         return pd.DataFrame()
-    seg = facts[facts["segment"].notna()]
+    seg = facts[facts["segment"].notna() & facts["value"].notna()]
     if seg.empty:
         return pd.DataFrame()
     pivot = seg.pivot_table(

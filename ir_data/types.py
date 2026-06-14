@@ -32,15 +32,16 @@ class CompanyInfo:
 
 @dataclass
 class FinancialFact:
-    """単一の財務数値 (XBRL の 1 概念 1 期間)."""
+    """単一のデータ点 (XBRL の 1 要素 × 1 コンテキスト)。数値・テキスト両対応。"""
 
     cik: str
-    concept: str
-    label: str
-    unit: str
-    value: float
+    concept: str          # 要素ID (EDINET) / us-gaap タグ (SEC)
+    label: str            # 項目名 / ラベル
+    unit: str = ""        # 円, USD, 株, ...
+    value: Optional[float] = None       # 数値 (数値でない場合 None)
+    value_text: Optional[str] = None    # テキストブロック等の非数値 (叙述情報含む)
     fy: Optional[int] = None
-    fp: Optional[str] = None  # FY, Q1, Q2, ...
+    fp: Optional[str] = None            # FY, Q1, ... / 当期・前期
     period_start: Optional[str] = None
     period_end: Optional[str] = None
     form: Optional[str] = None
@@ -48,20 +49,35 @@ class FinancialFact:
     # 事業別/地域別などのセグメント次元 (XBRL ディメンション member)。
     # None = 連結合計 (全社)、値あり = 当該セグメントの内訳。
     dimension: Optional[str] = None
+    consolidation: Optional[str] = None  # 連結 / 個別 (EDINET)
+    context_id: Optional[str] = None     # XBRL コンテキストID (一意性の元)
     source: str = "sec_edgar"
 
     def key(self) -> str:
-        return f"{self.source}:{self.cik}:{self.concept}:{self.unit}:{self.fy}:{self.fp}:{self.period_end}:{self.dimension or ''}"
+        ctx = self.context_id or f"{self.fy}:{self.fp}:{self.period_end}:{self.dimension or ''}:{self.consolidation or ''}"
+        return f"{self.source}:{self.cik}:{self.concept}:{self.unit}:{ctx}"
 
     @property
     def is_segment(self) -> bool:
         return self.dimension is not None
 
+    @property
+    def is_text(self) -> bool:
+        return self.value is None and bool(self.value_text)
+
 
 @dataclass
 class CompanyData:
-    """企業 1 社の取得結果 (基本情報 + 財務数値群)."""
+    """企業 1 社の取得結果 (基本情報 + 全データ点)."""
 
     info: CompanyInfo
     facts: List[FinancialFact] = field(default_factory=list)
     error: Optional[str] = None
+
+    @property
+    def numeric_facts(self) -> List["FinancialFact"]:
+        return [f for f in self.facts if f.value is not None]
+
+    @property
+    def text_facts(self) -> List["FinancialFact"]:
+        return [f for f in self.facts if f.is_text]

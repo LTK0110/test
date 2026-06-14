@@ -40,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--limit", type=int, default=20, help="1 クエリあたりの最大企業数 (既定: 20)")
     p.add_argument("--years", type=str, default=None, help="対象会計年度 (例: 2021-2023 または 2021,2022)")
     p.add_argument("--excel", type=str, default=None, help="Excel 出力先パス (.xlsx)")
+    p.add_argument("--markdown", type=str, default=None, help="全データのまとめ Markdown 出力先 (.md)")
     p.add_argument("--database-url", type=str, default=None, help="保存先 SQL の接続 URL (既定: sqlite:///ir_data.db)")
     p.add_argument("--no-store", action="store_true", help="DB へ保存しない")
     p.add_argument("--max-workers", type=int, default=None, help="並列ワーカー数")
@@ -86,6 +87,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             limit=args.limit,
             years=parse_years(args.years),
             excel_path=args.excel,
+            markdown_path=args.markdown,
             store=not args.no_store,
         )
     except Exception as exc:  # noqa: BLE001
@@ -95,6 +97,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     print(f"企業数: {len(result.companies)}  保存ファクト数: {result.facts_stored}")
     if result.excel_path:
         print(f"Excel: {result.excel_path}")
+    if result.markdown_path:
+        print(f"Markdown: {result.markdown_path}")
     if config.database_url:
         print(f"DB: {config.database_url}")
     n_err = sum(1 for d in result.companies if d.error)

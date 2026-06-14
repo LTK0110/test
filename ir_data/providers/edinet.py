@@ -29,19 +29,6 @@ DOC_GET_URL = "https://api.edinet-fsa.go.jp/api/v2/documents/{doc_id}"
 # 有価証券報告書 (120) / 四半期 (140) / 半期 (160)。年次のみ既定で対象。
 ANNUAL_DOC_TYPES = {"120"}
 
-# 抽出対象の主要勘定 (項目名の部分一致 → 正規化ラベル)。
-TARGET_ITEMS = {
-    "売上高": "Revenue",
-    "営業収益": "Revenue",
-    "営業利益": "OperatingIncome",
-    "経常利益": "OrdinaryIncome",
-    "当期純利益": "NetIncome",
-    "親会社株主に帰属する当期純利益": "NetIncome",
-    "純資産": "NetAssets",
-    "資産合計": "TotalAssets",
-    "研究開発費": "ResearchAndDevelopment",
-}
-
 
 class EdinetProvider(FinancialDataProvider):
     name = "edinet"
@@ -123,12 +110,19 @@ class EdinetProvider(FinancialDataProvider):
             return result
         period_end = (company.extra or {}).get("period_end")
         fy = int(period_end[:4]) if period_end and period_end[:4].isdigit() else None
-        if years and fy is not None and fy not in set(years):
-            return result
-        result.facts = self._parse_csv_zip(raw, company.cik, fy, period_end)
+        facts = self._parse_csv_zip(raw, company.cik, fy, period_end)
+        if years:
+            yset = set(years)
+            facts = [f for f in facts if f.fy is None or f.fy in yset]
+        result.facts = facts
         return result
 
-    def _parse_csv_zip(self, raw: bytes, cik: str, fy, period_end) -> List[FinancialFact]:
+    # 相対年度 → 当期からの年差 (fy 算出用)。
+    _REL_OFFSET = {"当期": 0, "当期末": 0, "前期": 1, "前期末": 1, "前々期": 2, "前々期末": 2,
+                   "前々々期": 3, "1期前": 1, "2期前": 2, "3期前": 3}
+
+    def _parse_csv_zip(self, raw: bytes, cik: str, base_fy, period_end) -> List[FinancialFact]:
+        """書類 CSV の **全行** を構造化して取り込む (数値・テキスト・全期間・連結/個別)。"""
         facts: List[FinancialFact] = []
         try:
             zf = zipfile.ZipFile(io.BytesIO(raw))
@@ -137,51 +131,48 @@ class EdinetProvider(FinancialDataProvider):
         for name in zf.namelist():
             if not name.lower().endswith(".csv"):
                 continue
-            data = zf.read(name)
-            text = self._decode(data)
+            text = self._decode(zf.read(name))
             reader = csv.reader(io.StringIO(text), delimiter="\t")
             rows = list(reader)
             if not rows:
                 continue
-            header = rows[0]
-            idx = {h: i for i, h in enumerate(header)}
+            idx = {h: i for i, h in enumerate(rows[0])}
+            ci_eid = idx.get("要素ID", 0)
             ci_item = idx.get("項目名", 1)
+            ci_context = idx.get("コンテキストID", 2)
+            ci_period = idx.get("相対年度")
+            ci_cons = idx.get("連結・個別")
             ci_unit = idx.get("単位", 7)
             ci_val = idx.get("値", 8)
-            ci_eid = idx.get("要素ID", 0)
-            ci_period = idx.get("相対年度")
-            ci_context = idx.get("コンテキストID")
-            ci_cons = idx.get("連結・個別")
             for row in rows[1:]:
-                if len(row) <= max(ci_item, ci_val):
+                if len(row) <= ci_val:
                     continue
-                item = row[ci_item].strip()
-                label = self._match_item(item)
-                if label is None:
+                concept = row[ci_eid].strip() if ci_eid < len(row) else ""
+                item = row[ci_item].strip() if ci_item < len(row) else ""
+                if not concept and not item:
                     continue
-                if ci_period is not None and ci_period < len(row):
-                    if row[ci_period].strip() not in ("当期", "当期末", ""):
-                        continue
-                # 個別 (非連結) は連結合計と衝突するため除外 (IR は連結が基本)。
-                if ci_cons is not None and ci_cons < len(row) and row[ci_cons].strip() == "個別":
-                    continue
-                value = self._to_float(row[ci_val])
-                if value is None:
-                    continue
-                context = row[ci_context].strip() if ci_context is not None and ci_context < len(row) else ""
-                dimension = self._segment_from_context(context)
+                context = row[ci_context].strip() if ci_context < len(row) else ""
+                rel = row[ci_period].strip() if ci_period is not None and ci_period < len(row) else ""
+                cons = row[ci_cons].strip() if ci_cons is not None and ci_cons < len(row) else None
+                unit = row[ci_unit].strip() if ci_unit < len(row) else ""
+                raw_val = row[ci_val] if ci_val < len(row) else ""
+                value = self._to_float(raw_val)
+                fy = base_fy - self._REL_OFFSET.get(rel, 0) if base_fy is not None else None
                 facts.append(
                     FinancialFact(
                         cik=cik,
-                        concept=row[ci_eid].strip() if ci_eid < len(row) else label,
-                        label=item or label,
-                        unit=row[ci_unit].strip() if ci_unit < len(row) else "JPY",
+                        concept=concept or item,
+                        label=item or concept,
+                        unit=unit,
                         value=value,
+                        value_text=None if value is not None else (raw_val.strip() or None),
                         fy=fy,
-                        fp="FY",
-                        period_end=period_end,
+                        fp=rel or None,
+                        period_end=period_end if rel in ("当期", "当期末", "") else None,
                         form="有価証券報告書",
-                        dimension=dimension,
+                        dimension=self._segment_from_context(context),
+                        consolidation=cons or None,
+                        context_id=context or None,
                         source=self.name,
                     )
                 )
@@ -211,13 +202,6 @@ class EdinetProvider(FinancialDataProvider):
             except (UnicodeDecodeError, LookupError):
                 continue
         return data.decode("utf-8", errors="ignore")
-
-    @staticmethod
-    def _match_item(item: str) -> Optional[str]:
-        for key, label in TARGET_ITEMS.items():
-            if key in item:
-                return label
-        return None
 
     @staticmethod
     def _to_float(raw: str) -> Optional[float]:
