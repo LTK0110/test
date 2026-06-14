@@ -28,7 +28,13 @@ class PipelineResult:
 
 
 class Pipeline:
-    def __init__(self, config: Config, http: Optional[HttpClient] = None, repository: Optional[Repository] = None):
+    def __init__(
+        self,
+        config: Config,
+        http: Optional[HttpClient] = None,
+        repository: Optional[Repository] = None,
+        country: Optional[str] = None,
+    ):
         self.config = config
         self.http = http or HttpClient(
             user_agent=config.user_agent,
@@ -36,8 +42,21 @@ class Pipeline:
             timeout=config.request_timeout,
             max_retries=config.max_retries,
         )
-        self.providers = build_providers(config, self.http)
+        self.providers = build_providers(config, self.http, country=country)
         self.repository = repository or Repository(create_db_engine(config.database_url))
+
+    def _resolve_providers(self, provider: str):
+        """'sec_edgar,edinet' や 'all' を解決してプロバイダ一覧を返す."""
+        if provider == "all":
+            names = list(self.providers)
+        else:
+            names = [p.strip() for p in provider.split(",") if p.strip()]
+        provs = []
+        for n in names:
+            if n not in self.providers:
+                raise ValueError(f"未知のプロバイダ: {n} (利用可能: {list(self.providers)}, all)")
+            provs.append(self.providers[n])
+        return provs
 
     # ---------------------------------------------------------------- 実行
     def run(
@@ -50,29 +69,31 @@ class Pipeline:
         excel_path: Optional[str] = None,
         store: bool = True,
     ) -> PipelineResult:
-        prov = self.providers.get(provider)
-        if prov is None:
-            raise ValueError(f"未知のプロバイダ: {provider} (利用可能: {list(self.providers)})")
+        provs = self._resolve_providers(provider)
 
-        # 1) 複数クエリを並列で検索
-        logger.info("検索開始: %d 件のクエリ (mode=%s)", len(queries), mode)
+        # 1) 複数クエリ × 複数プロバイダを並列で検索
+        logger.info("検索開始: %d クエリ × %d プロバイダ (mode=%s)", len(queries), len(provs), mode)
+        tasks = [(p, q) for p in provs for q in queries]
         search_outcomes = run_parallel(
-            lambda q: prov.search(q, mode=mode, limit=limit),
-            queries,
+            lambda t: t[0].search(t[1], mode=mode, limit=limit),
+            tasks,
             max_workers=self.config.max_workers,
         )
         companies: dict[str, CompanyInfo] = {}
-        for query, infos, err in search_outcomes:
+        for (prov, query), infos, err in search_outcomes:
             if err:
-                logger.warning("検索失敗 '%s': %s", query, err)
+                logger.warning("検索失敗 [%s] '%s': %s", prov.name, query, err)
                 continue
             for info in infos or []:
                 companies.setdefault(info.key(), info)
         logger.info("検索ヒット企業数 (重複排除後): %d", len(companies))
 
-        # 2) 各企業の財務を並列取得
+        # 2) 各企業の財務を並列取得 (発行元プロバイダで取得)
+        by_name = {p.name: p for p in provs}
         fetch_outcomes = run_parallel(
-            lambda info: prov.fetch_financials(info, concepts=self.config.concepts, years=years),
+            lambda info: by_name[info.source].fetch_financials(
+                info, concepts=self.config.concepts, years=years
+            ),
             list(companies.values()),
             max_workers=self.config.max_workers,
         )

@@ -8,10 +8,11 @@ import pytest
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, payload=None, text=""):
+    def __init__(self, status_code=200, payload=None, text="", content=b""):
         self.status_code = status_code
         self._payload = payload
         self.text = text
+        self.content = content
 
     def json(self):
         return self._payload

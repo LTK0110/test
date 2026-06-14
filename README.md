@@ -9,15 +9,24 @@
 
 ## データソース
 
-無料・API キー不要の **公式一次情報** を優先しています。
+**公式な一次情報 (規制当局/取引所の API)** を最優先します。スクレイピングは
+安定性・規約の点で採用しません。詳細は [docs/DATA_SOURCES.md](docs/DATA_SOURCES.md)。
 
-| ソース | 内容 | 備考 |
-| --- | --- | --- |
-| [SEC EDGAR](https://www.sec.gov/edgar) | 米国上場企業の提出書類・XBRL 財務データ・全文検索 | 無料・キー不要 (User-Agent 必須) |
+| 地域 | プロバイダ名 | ソース | 無料 | キー |
+| --- | --- | --- | --- | --- |
+| 🇺🇸 米国 | `sec_edgar` | SEC EDGAR (XBRL 財務・全文検索) | ✅ | 不要 |
+| 🇯🇵 日本 | `edinet` | EDINET API v2 (金融庁・有報 CSV/XBRL) | ✅ | 要(無料) |
+| 🇬🇧 英国 | `companies_house` | Companies House Public Data API | ✅ | 要(無料) |
+| 🇪🇺 EU | `gleif` | GLEIF LEI API (エンティティ情報) | ✅ | 不要 |
 
-> プロバイダは差し替え可能な設計です (`ir_data/providers/`)。日本の EDINET や
-> 欧州各当局、商用 API (Alpha Vantage の無料枠など) を `FinancialDataProvider`
-> を実装して追加できます。
+- **日本**: EDINET 以外に公式 API は存在しません (代替はスクレイピングか商用)。
+  EDINET は名称検索 API が無いため、直近 N 日の書類一覧を遡って絞り込みます。
+- **EU**: 統一 API (ESAP) は 2027〜2028 稼働予定。それまでは GLEIF で法人エンティティ
+  情報を取得します (財務数値は ESAP 稼働後に対応)。
+- **東南アジア**: 公式無料 API が存在しないため現時点では対象外です。
+
+> プロバイダは差し替え可能です (`ir_data/providers/`)。新しい取得元は
+> `FinancialDataProvider` を実装し `build_providers` に登録するだけで追加できます。
 
 ## セットアップ
 
@@ -49,6 +58,20 @@ ir-data --mode industry "semiconductor" "electric vehicle"
 
 # 会計年度で絞り込み
 ir-data --mode ticker --years 2021-2023 AAPL
+
+# 日本 (EDINET) で企業名/証券コード検索
+ir-data --provider edinet --excel jp.xlsx "トヨタ" "ソニー"
+
+# 英国 (Companies House) で検索
+ir-data --provider companies_house --excel uk.xlsx "BP"
+
+# EU 法人エンティティ情報 (GLEIF, ドイツに絞り込み)
+ir-data --provider gleif --country DE "Allianz"
+
+# 複数プロバイダ同時 (米+日+英を並列)
+ir-data --provider sec_edgar,edinet,companies_house --excel multi.xlsx "AAPL" "トヨタ" "BP"
+# あるいは全プロバイダ
+ir-data --provider all "Apple"
 ```
 
 ### 主なオプション
@@ -59,6 +82,8 @@ ir-data --mode ticker --years 2021-2023 AAPL
 | `--limit` | 1 クエリあたりの最大企業数 (既定 20) |
 | `--years` | 対象会計年度 (`2021-2023` または `2021,2022`) |
 | `--excel` | Excel 出力先 (`.xlsx`) |
+| `--provider` | `sec_edgar`/`edinet`/`companies_house`/`gleif`。カンマ区切り or `all` |
+| `--country` | 国コードで絞り込み (GLEIF 等。例 `DE`) |
 | `--database-url` | 保存先 SQL 接続 URL |
 | `--no-store` | DB へ保存しない |
 | `--max-workers` | 並列ワーカー数 |
@@ -110,8 +135,11 @@ ir_data/
 ├── models.py         # SQLAlchemy ORM
 ├── types.py          # ドメインのデータ構造
 └── providers/
-    ├── base.py       # プロバイダ抽象基底
-    └── sec_edgar.py  # SEC EDGAR (無料・公式)
+    ├── base.py            # プロバイダ抽象基底
+    ├── sec_edgar.py       # 米国 SEC EDGAR (無料・キー不要)
+    ├── edinet.py          # 日本 EDINET v2 (無料キー)
+    ├── companies_house.py # 英国 Companies House (無料キー)
+    └── gleif.py           # EU/グローバル GLEIF (無料・キー不要)
 ```
 
 レート制御は `HttpClient` 内でスレッド間共有されるため、ワーカー数を増やしても

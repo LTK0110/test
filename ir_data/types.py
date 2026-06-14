@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 # 検索モード。company / ticker は直接解決、それ以外はキーワード全文検索。
 SEARCH_MODES = ("company", "ticker", "industry", "application", "technology", "keyword")
@@ -22,6 +22,8 @@ class CompanyInfo:
     country: Optional[str] = None
     fiscal_year_end: Optional[str] = None
     source: str = "sec_edgar"
+    # プロバイダ固有のハンドル (例: EDINET の docID / edinetCode)。永続化対象外。
+    extra: Dict[str, Any] = field(default_factory=dict)
 
     def key(self) -> str:
         """重複排除に使う一意キー."""

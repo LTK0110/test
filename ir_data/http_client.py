@@ -59,9 +59,11 @@ class HttpClient:
     def _default_transport(self, url, params, headers, timeout):
         return self._session.get(url, params=params, headers=headers, timeout=timeout)
 
-    def get_json(self, url: str, params: Optional[Dict[str, Any]] = None) -> Any:
-        """GET してパースした JSON を返す。失敗時は指数バックオフでリトライ。"""
+    def _request(self, url, params, extra_headers):
+        """リトライ付きで GET し requests.Response 相当を返す。404 は None。"""
         headers = {"User-Agent": self.user_agent, "Accept-Encoding": "gzip, deflate"}
+        if extra_headers:
+            headers.update(extra_headers)
         last_exc: Optional[Exception] = None
         for attempt in range(self.max_retries):
             self.limiter.acquire()
@@ -74,10 +76,30 @@ class HttpClient:
                     raise requests.HTTPError(f"HTTP {status} for {url}")
                 if status >= 400:
                     raise requests.HTTPError(f"HTTP {status} for {url}: {getattr(resp, 'text', '')[:200]}")
-                return resp.json()
+                return resp
             except Exception as exc:  # noqa: BLE001 - リトライ対象として捕捉
                 last_exc = exc
                 if attempt < self.max_retries - 1:
                     time.sleep(2 ** attempt)
         assert last_exc is not None
         raise last_exc
+
+    def get_json(
+        self,
+        url: str,
+        params: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Any:
+        """GET してパースした JSON を返す。失敗時は指数バックオフでリトライ。"""
+        resp = self._request(url, params, headers)
+        return None if resp is None else resp.json()
+
+    def get_bytes(
+        self,
+        url: str,
+        params: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+    ) -> Optional[bytes]:
+        """GET して生のバイト列を返す (ZIP 等のバイナリ取得用)。"""
+        resp = self._request(url, params, headers)
+        return None if resp is None else resp.content

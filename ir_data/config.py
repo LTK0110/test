@@ -46,6 +46,12 @@ class Config:
     max_retries: int = field(default_factory=lambda: int(os.getenv("IR_DATA_MAX_RETRIES", "3")))
     concepts: List[str] = field(default_factory=lambda: list(DEFAULT_CONCEPTS))
 
+    # 各公式 API の無料キー (取得元により要否が異なる)。
+    edinet_api_key: Optional[str] = field(default_factory=lambda: os.getenv("EDINET_API_KEY"))
+    companies_house_api_key: Optional[str] = field(default_factory=lambda: os.getenv("COMPANIES_HOUSE_API_KEY"))
+    # EDINET の検索対象日数 (名称検索を持たないため日付範囲を遡って収集)。
+    edinet_lookback_days: int = field(default_factory=lambda: int(os.getenv("EDINET_LOOKBACK_DAYS", "60")))
+
     # 補完用の商用 API キー (任意・無料枠想定)。未設定でも公式一次情報のみで動作。
     alpha_vantage_key: Optional[str] = field(default_factory=lambda: os.getenv("ALPHA_VANTAGE_API_KEY"))
 

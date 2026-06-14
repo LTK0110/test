@@ -30,7 +30,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("queries", nargs="+", help="検索語 (企業名/ティッカー/業界/技術キーワード等)。複数指定で並列処理")
     p.add_argument("--mode", choices=SEARCH_MODES, default="company", help="検索モード (既定: company)")
-    p.add_argument("--provider", default="sec_edgar", help="データプロバイダ (既定: sec_edgar)")
+    p.add_argument(
+        "--provider",
+        default="sec_edgar",
+        help="データプロバイダ。カンマ区切り or 'all' 可 "
+        "(sec_edgar=米, edinet=日, companies_house=英, gleif=EU/グローバル)",
+    )
+    p.add_argument("--country", default=None, help="国コードで絞り込み (GLEIF 等。例: DE, FR)")
     p.add_argument("--limit", type=int, default=20, help="1 クエリあたりの最大企業数 (既定: 20)")
     p.add_argument("--years", type=str, default=None, help="対象会計年度 (例: 2021-2023 または 2021,2022)")
     p.add_argument("--excel", type=str, default=None, help="Excel 出力先パス (.xlsx)")
@@ -71,7 +77,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     for w in config.validate():
         logging.warning(w)
 
-    pipeline = Pipeline(config)
+    pipeline = Pipeline(config, country=args.country)
     try:
         result = pipeline.run(
             queries=args.queries,
