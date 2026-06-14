@@ -45,3 +45,12 @@ def test_markdown_full_dump(tmp_path):
     assert "AReportableSegmentsMember" in text
     assert "事業の内容" in text and "テスト事業" in text
     assert "<p>" not in text  # HTML タグは除去される
+
+
+def test_markdown_number_format_no_scientific():
+    from ir_data.markdown_export import _fmt
+
+    assert _fmt(11726.7) == "11,726.7"   # 指数表記 (1.173e+04) にしない
+    assert _fmt(1234567.0) == "1,234,567"
+    assert _fmt(9454.5) == "9,454.5"
+    assert _fmt(None) == ""

@@ -117,7 +117,11 @@ ir-data --provider all "Apple"     # 米+日+英+EU 同時
    (数値=`nonFraction` / 叙述=`nonNumeric`、scale・括弧負数・期間/時点・セグメント次元・
    連結/個別を解決)。標準ライブラリのみ (lxml 不使用)。iXBRL 非提供 (PDF のみ) や
    egress 制限時はメタデータへフォールバックし note で通知。実データ "BP" で 425 ファクト
-   取得を確認済み。残課題: 概念ラベルの和名/英名整形、より多様な iXBRL 書式の検証。
+   取得を確認済み。概念ラベルは `ir_data/concept_labels.py` で和名 (既知の FRC/core 概念)
+   ／英文整形 (camelCase 分割) を付与 (prefix 非依存。core/uk-core/frs-core を横断)。
+   iXBRL 書式は 2008/2013 名前空間・sign 属性・括弧負数・xsi:nil・空白/カンマ区切り・
+   入れ子タグの叙述・instant/duration コンテキストをテストで検証済み。Markdown の数値は
+   指数表記を避け桁区切り表示。残課題: 和名辞書の拡充、地域別セグメント。
 4. (任意) 地域別セグメント、EDINET の四半期/半期 (docTypeCode 140/160) 対応。
 
 ## 作業ルール

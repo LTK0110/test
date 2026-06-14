@@ -19,6 +19,7 @@ import base64
 import logging
 from typing import Dict, List, Optional
 
+from ..concept_labels import concept_label
 from ..http_client import HttpClient
 from ..ixbrl import parse_ixbrl
 from ..types import CompanyData, CompanyInfo, FinancialFact
@@ -140,7 +141,7 @@ class CompaniesHouseProvider(FinancialDataProvider):
                 FinancialFact(
                     cik=company.cik,
                     concept=f.concept,
-                    label=f.label,
+                    label=concept_label(f.concept),
                     unit=f.unit,
                     value=f.value,
                     value_text=f.value_text,

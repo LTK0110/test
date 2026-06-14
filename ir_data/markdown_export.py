@@ -26,7 +26,8 @@ def _fmt(v: Optional[float]) -> str:
         return ""
     if v == int(v):
         return f"{int(v):,}"
-    return f"{v:,.4g}"
+    # 通貨額が大半。指数表記を避け、桁区切り + 小数2桁 (末尾0は除去)。
+    return f"{v:,.2f}".rstrip("0").rstrip(".")
 
 
 def _md_table(headers: List[str], rows: List[List[str]]) -> str:

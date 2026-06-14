@@ -109,3 +109,54 @@ def test_parse_non_numeric_and_entities():
 def test_parse_invalid_returns_empty():
     assert parse_ixbrl("not xml <<<") == []
     assert parse_ixbrl(b"") == []
+
+
+# --------------------------------------------------------------- 書式バリエーション
+# 2008 版名前空間 / sign 属性の負号 / nil スキップ / scale 無し小数 /
+# 空白区切り / iso4217 接頭辞無しの measure / nonNumeric の入れ子タグ。
+VARIANTS = """<?xml version="1.0"?>
+<html xmlns="http://www.w3.org/1999/xhtml"
+      xmlns:ix="http://www.xbrl.org/2008/inlineXBRL"
+      xmlns:xbrli="http://www.xbrl.org/2003/instance"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+ <body>
+  <xbrli:context id="c">
+   <xbrli:period><xbrli:instant>2024-06-30</xbrli:instant></xbrli:period>
+  </xbrli:context>
+  <xbrli:unit id="gbp"><xbrli:measure>GBP</xbrli:measure></xbrli:unit>
+  <ix:nonFraction name="core:ProfitLoss" contextRef="c" unitRef="gbp"
+      sign="-" scale="0">789</ix:nonFraction>
+  <ix:nonFraction name="core:Ratio" contextRef="c">12.5</ix:nonFraction>
+  <ix:nonFraction name="core:SpaceSep" contextRef="c" unitRef="gbp">1 234 567</ix:nonFraction>
+  <ix:nonFraction name="core:Nilled" contextRef="c" unitRef="gbp"
+      xsi:nil="true"></ix:nonFraction>
+  <ix:nonNumeric name="uk-bus:Note" contextRef="c">Profit was
+      <b>strong</b> this <i>year</i>.</ix:nonNumeric>
+ </body>
+</html>"""
+
+
+def test_parse_2008_namespace_and_sign():
+    facts = parse_ixbrl(VARIANTS)
+    by = _by_concept(facts)
+    # 2008 版名前空間でも localname で認識し、sign="-" を負号として適用。
+    assert by["core:ProfitLoss"][0].value == -789.0
+    # iso4217 接頭辞無しの measure もそのまま単位に。
+    assert by["core:ProfitLoss"][0].unit == "GBP"
+
+
+def test_parse_decimal_and_space_separator():
+    by = _by_concept(parse_ixbrl(VARIANTS))
+    assert by["core:Ratio"][0].value == 12.5
+    assert by["core:SpaceSep"][0].value == 1234567.0
+
+
+def test_parse_nil_skipped():
+    concepts = {f.concept for f in parse_ixbrl(VARIANTS)}
+    assert "core:Nilled" not in concepts
+
+
+def test_parse_non_numeric_nested_tags():
+    by = _by_concept(parse_ixbrl(VARIANTS))
+    note = by["uk-bus:Note"][0]
+    assert note.value_text == "Profit was strong this year."
