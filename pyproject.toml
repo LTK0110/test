@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ir-data"
+version = "0.1.0"
+description = "主要国企業の IR・財務情報を公式一次情報から取得し Excel/SQL へ保存する CLI"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.28",
+    "SQLAlchemy>=2.0",
+    "pandas>=1.5",
+    "openpyxl>=3.1",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+ir-data = "ir_data.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ir_data*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
