@@ -11,3 +11,4 @@ venv/
 *.sqlite3
 *.xlsx
 .pytest_cache/
+demo_out/
