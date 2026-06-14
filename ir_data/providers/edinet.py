@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import zipfile
 from datetime import date, timedelta
 from typing import Dict, List, Optional
@@ -154,6 +155,7 @@ class EdinetProvider(FinancialDataProvider):
                 context = row[ci_context].strip() if ci_context < len(row) else ""
                 rel = row[ci_period].strip() if ci_period is not None and ci_period < len(row) else ""
                 cons = row[ci_cons].strip() if ci_cons is not None and ci_cons < len(row) else None
+                consolidation = self._consolidation(cons, context)
                 unit = row[ci_unit].strip() if ci_unit < len(row) else ""
                 raw_val = row[ci_val] if ci_val < len(row) else ""
                 value = self._to_float(raw_val)
@@ -171,28 +173,54 @@ class EdinetProvider(FinancialDataProvider):
                         period_end=period_end if rel in ("当期", "当期末", "") else None,
                         form="有価証券報告書",
                         dimension=self._segment_from_context(context),
-                        consolidation=cons or None,
+                        consolidation=consolidation,
                         context_id=context or None,
                         source=self.name,
                     )
                 )
         return facts
 
+    # 要素 namespace 接頭辞 (例: 'jpcrp030000-asr_E00436-000') を除去するための正規表現。
+    _NS_PREFIX = re.compile(r"^jp[\w-]+?_E\d+-\d+")
+
     @staticmethod
-    def _segment_from_context(context: str) -> Optional[str]:
+    def _consolidation(raw_col: Optional[str], context: str) -> Optional[str]:
+        """連結/個別 の区分を決定する.
+
+        EDINET CSV の「連結・個別」列は連結財務諸表(特に IFRS)や DEI/叙述要素では
+        ``その他`` になり ``連結`` が付かないことがある。一方、個別(親会社単独)の値は
+        列が ``個別`` か、コンテキストに ``NonConsolidatedMember`` 軸を持つ。
+        後者を優先して個別を確実に判定し、それ以外は列値を尊重する。
+        """
+        if context and "NonConsolidatedMember" in context:
+            return "個別"
+        col = (raw_col or "").strip()
+        return col or None
+
+    @classmethod
+    def _segment_from_context(cls, context: str) -> Optional[str]:
         """コンテキストID から事業別/地域別セグメントの member を抽出する.
 
-        例: 'CurrentYearDuration_ImagingReportableSegmentsMember' -> その member。
-        連結/個別の区分のみ、または member 無し (全社合計) は None を返す。
+        実データのコンテキストは ``{期間}_[{連結区分軸}_]{member}`` の形を取り、member は
+        ``OtherReportableSegmentsMember`` のような裸名のほか
+        ``jpcrp030000-asr_E00436-000SeasoningsAndFoodsReportableSegmentMember`` のように
+        namespace 接頭辞付きの場合がある。期間トークンと連結区分軸を除き、namespace 接頭辞も
+        取り除いた純粋な member を返す。連結/個別の区分のみ、または member 無し
+        (全社合計) は None を返す。
         """
         if not context or "_" not in context:
             return None
-        member = context.split("_", 1)[1]
-        if "Member" not in member:
+        body = context.split("_", 1)[1]  # 先頭の期間トークンを除去
+        for axis in ("NonConsolidatedMember_", "ConsolidatedMember_"):
+            if body.startswith(axis):
+                body = body[len(axis):]
+                break
+        if body in ("NonConsolidatedMember", "ConsolidatedMember"):
             return None
-        if member in ("ConsolidatedMember", "NonConsolidatedMember"):
+        body = cls._NS_PREFIX.sub("", body)  # namespace 接頭辞を除去
+        if "Member" not in body:
             return None
-        return member
+        return body or None
 
     @staticmethod
     def _decode(data: bytes) -> str:

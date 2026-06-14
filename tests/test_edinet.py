@@ -140,3 +140,37 @@ def test_edinet_segment_extraction():
     # 個別行も構造化して保持し、連結区分で判別できる
     nonconsol = next(f for f in data.facts if f.consolidation == "個別")
     assert nonconsol.value == 999.0 and nonconsol.dimension is None
+
+
+def test_segment_from_context_real_patterns():
+    """実データのコンテキスト形 (namespace 接頭辞付き・連結区分軸混在) を正しく解す."""
+    f = EdinetProvider._segment_from_context
+    # namespace 接頭辞付き member -> 接頭辞を除去
+    assert (
+        f("CurrentYearDuration_jpcrp030000-asr_E00436-000SeasoningsAndFoodsReportableSegmentMember")
+        == "SeasoningsAndFoodsReportableSegmentMember"
+    )
+    # 裸 member
+    assert f("CurrentYearDuration_OtherReportableSegmentsMember") == "OtherReportableSegmentsMember"
+    # 個別軸 + namespace 接頭辞付き member -> 連結区分軸も接頭辞も除去
+    assert (
+        f("CurrentYearInstant_NonConsolidatedMember_jpcrp030000-asr_E00436-000FrozenFoodsReportableSegmentMember")
+        == "FrozenFoodsReportableSegmentMember"
+    )
+    # 連結区分軸のみ (member 無し) -> None
+    assert f("CurrentYearInstant_NonConsolidatedMember") is None
+    # member 無し (全社合計) -> None
+    assert f("CurrentYearDuration") is None
+
+
+def test_consolidation_derivation():
+    """連結・個別列が 'その他' でもコンテキストの NonConsolidatedMember から個別を判定する."""
+    d = EdinetProvider._consolidation
+    # 列が 'その他' でも NonConsolidatedMember があれば個別
+    assert d("その他", "CurrentYearInstant_NonConsolidatedMember_FooSegmentMember") == "個別"
+    # 列値を尊重 (連結合計はマーカー無し)
+    assert d("連結", "CurrentYearDuration") == "連結"
+    assert d("個別", "CurrentYearDuration") == "個別"
+    # IFRS 連結や DEI は 'その他' のまま保持
+    assert d("その他", "CurrentYearDuration") == "その他"
+    assert d("", "CurrentYearDuration") is None
