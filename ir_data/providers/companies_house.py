@@ -111,7 +111,7 @@ class CompaniesHouseProvider(FinancialDataProvider):
                     source=self.name,
                 )
             )
-        result.error = (
+        result.note = (
             "Companies House: メタデータと提出履歴を取得。数値財務は iXBRL 解析が必要 (次フェーズ)。"
         )
         return result

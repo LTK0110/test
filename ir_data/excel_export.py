@@ -24,6 +24,7 @@ def _companies_frame(results: List[CompanyData]) -> pd.DataFrame:
             "country": c.country,
             "fiscal_year_end": c.fiscal_year_end,
             "num_facts": len(d.facts),
+            "note": d.note,
             "error": d.error,
         })
     return pd.DataFrame(rows)

@@ -98,8 +98,10 @@ def _company_section(data: CompanyData) -> str:
         f"- 取得データ点数: {len(data.facts):,} "
         f"(数値 {len(data.numeric_facts):,} / テキスト {len(data.text_facts):,})",
     ]
+    if data.note:
+        meta.append(f"- 備考: {data.note}")
     if data.error:
-        meta.append(f"- 備考: {data.error}")
+        meta.append(f"- エラー: {data.error}")
     # 連結合計のみ (セグメント内訳と個別は除外) で全社財務表を作る
     consolidated = [f for f in data.numeric_facts if not f.is_segment and f.consolidation != "個別"]
     sections = ["\n".join(meta), "## 財務数値 (連結合計)\n\n" + _numeric_table(consolidated)]

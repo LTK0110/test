@@ -72,7 +72,8 @@ class CompanyData:
 
     info: CompanyInfo
     facts: List[FinancialFact] = field(default_factory=list)
-    error: Optional[str] = None
+    error: Optional[str] = None  # 取得失敗時のみ設定 (実エラー)
+    note: Optional[str] = None   # 正常取得時の補足情報 (例: 数値財務は未対応)
 
     @property
     def numeric_facts(self) -> List["FinancialFact"]:

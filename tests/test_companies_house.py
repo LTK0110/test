@@ -57,3 +57,6 @@ def test_ch_fetch_enriches_and_filing_count():
     assert data.info.sic == "06100"
     assert data.info.fiscal_year_end == "1231"
     assert any(f.concept == "AccountsFilings" and f.value == 1.0 for f in data.facts)
+    # 正常取得。補足情報は note に入り、error は立てない (誤った取得エラー扱いを防ぐ)。
+    assert data.error is None
+    assert data.note and "iXBRL" in data.note

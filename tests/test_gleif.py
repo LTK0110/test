@@ -49,4 +49,6 @@ def test_gleif_no_financials():
     company = prov.search("Allianz")[0]
     data = prov.fetch_financials(company)
     assert data.facts == []
-    assert "財務データなし" in data.error
+    # GLEIF はエンティティ情報のみ。これは実エラーではなく補足情報 (note)。
+    assert data.error is None
+    assert "財務データなし" in data.note

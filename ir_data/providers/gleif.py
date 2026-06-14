@@ -61,5 +61,5 @@ class GleifProvider(FinancialDataProvider):
         return CompanyData(
             info=company,
             facts=[],
-            error="GLEIF はエンティティ情報のみ提供 (財務データなし)。EU 財務は ESAP 稼働後 (2027-2028) に対応予定。",
+            note="GLEIF はエンティティ情報のみ提供 (財務データなし)。EU 財務は ESAP 稼働後 (2027-2028) に対応予定。",
         )
