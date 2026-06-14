@@ -49,6 +49,8 @@ class FinancialFact:
     # 事業別/地域別などのセグメント次元 (XBRL ディメンション member)。
     # None = 連結合計 (全社)、値あり = 当該セグメントの内訳。
     dimension: Optional[str] = None
+    # セグメント member の和名 (書類のラベルリンクベース由来)。表示用で一意キーには使わない。
+    dimension_label: Optional[str] = None
     consolidation: Optional[str] = None  # 連結 / 個別 (EDINET)
     context_id: Optional[str] = None     # XBRL コンテキストID (一意性の元)
     source: str = "sec_edgar"

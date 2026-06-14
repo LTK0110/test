@@ -45,7 +45,8 @@ def _facts_frame(results: List[CompanyData]) -> pd.DataFrame:
                 "fy": f.fy,
                 "fp": f.fp,
                 "period_end": f.period_end,
-                "segment": f.dimension,  # None=連結合計、値あり=事業別/地域別
+                "segment": f.dimension,  # None=連結合計、値あり=事業別/地域別 (英語ID)
+                "segment_label": f.dimension_label,  # セグメントの和名 (あれば)
                 "consolidation": f.consolidation,
                 "context_id": f.context_id,
                 "form": f.form,
@@ -76,11 +77,14 @@ def _segments_frame(facts: pd.DataFrame) -> pd.DataFrame:
     """事業別/地域別セグメント × 指標のピボット (セグメント行のみ)."""
     if facts.empty:
         return pd.DataFrame()
-    seg = facts[facts["segment"].notna() & facts["value"].notna()]
+    seg = facts[facts["segment"].notna() & facts["value"].notna()].copy()
     if seg.empty:
         return pd.DataFrame()
+    # 和名があれば表示に使う (無い member は英語 ID をそのまま)。
+    label_col = seg["segment_label"] if "segment_label" in seg else None
+    seg["segment_jp"] = label_col.fillna(seg["segment"]) if label_col is not None else seg["segment"]
     pivot = seg.pivot_table(
-        index=["name", "fy", "segment"],
+        index=["name", "fy", "segment_jp", "segment"],
         columns="label",
         values="value",
         aggfunc="last",

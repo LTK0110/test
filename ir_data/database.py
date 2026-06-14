@@ -73,6 +73,7 @@ class Repository:
                 session.add(rec)
                 existing[k] = rec
             rec.label = fact.label
+            rec.dimension_label = fact.dimension_label
             rec.value = fact.value
             rec.value_text = fact.value_text
             rec.fp = fact.fp

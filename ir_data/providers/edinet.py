@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+import xml.etree.ElementTree as ET
 import zipfile
 from datetime import date, timedelta
 from typing import Dict, List, Optional
@@ -115,8 +116,98 @@ class EdinetProvider(FinancialDataProvider):
         if years:
             yset = set(years)
             facts = [f for f in facts if f.fy is None or f.fy in yset]
+        # セグメント member の和名をラベルリンクベース (書類の XBRL 定義) から付与する。
+        if any(f.dimension for f in facts):
+            label_map = self._fetch_segment_labels(doc_id)
+            if label_map:
+                for f in facts:
+                    if f.dimension and f.dimension in label_map:
+                        f.dimension_label = label_map[f.dimension]
         result.facts = facts
         return result
+
+    # ------------------------------------------------------ ラベルリンクベース
+    def _fetch_segment_labels(self, doc_id: str) -> Dict[str, str]:
+        """書類本体 (type=1) の ``_lab.xml`` を解析し {member ローカル名: 和名} を返す.
+
+        セグメント等の member 要素は会社拡張タクソノミで定義され、その和名は書類同梱の
+        ラベルリンクベースにある。取得・解析に失敗しても致命的でないため空辞書を返す。
+        """
+        try:
+            raw = self.http.get_bytes(
+                DOC_GET_URL.format(doc_id=doc_id), params=self._params({"type": "1"})
+            )
+            if not raw:
+                return {}
+            zf = zipfile.ZipFile(io.BytesIO(raw))
+            labels: Dict[str, str] = {}
+            for name in zf.namelist():
+                if name.lower().endswith("_lab.xml"):
+                    labels.update(self._parse_label_linkbase(zf.read(name)))
+            return labels
+        except (zipfile.BadZipFile, ET.ParseError, OSError):
+            return {}
+
+    # 標準ラベル role を優先 (verboseLabel/totalLabel より素の名称を選ぶ)。
+    _STD_LABEL_ROLE = "http://www.xbrl.org/2003/role/label"
+    _XLINK = "http://www.w3.org/1999/xlink"
+    _XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
+
+    @classmethod
+    def _parse_label_linkbase(cls, xml_bytes: bytes) -> Dict[str, str]:
+        """``_lab.xml`` を解析し member ローカル名 → 和名 の対応を作る.
+
+        構造: loc(要素→ラベルキー) / labelArc(ラベルキー→リソースキー) /
+        label(リソースキー→和名)。member (末尾 ``Member``) のみ対象とする。
+        ローカル名は要素IDの最後の ``_`` 以降 (例
+        ``...E00436-000_SeasoningsAndFoodsReportableSegmentMember`` →
+        ``SeasoningsAndFoodsReportableSegmentMember``) で、``_segment_from_context``
+        の出力と一致する。
+        """
+        root = ET.fromstring(xml_bytes)
+        loc: Dict[str, str] = {}        # ラベルキー -> member ローカル名
+        arcs: List[tuple] = []          # (from, to)
+        res: Dict[str, List[tuple]] = {}  # リソースキー -> [(role, lang, text)]
+        href_a = f"{{{cls._XLINK}}}href"
+        label_a = f"{{{cls._XLINK}}}label"
+        from_a = f"{{{cls._XLINK}}}from"
+        to_a = f"{{{cls._XLINK}}}to"
+        role_a = f"{{{cls._XLINK}}}role"
+        for el in root.iter():
+            tag = el.tag.rsplit("}", 1)[-1]
+            if tag == "loc":
+                frag = (el.get(href_a) or "").split("#", 1)
+                if len(frag) != 2:
+                    continue
+                local = frag[1].rsplit("_", 1)[-1]
+                if local.endswith("Member"):
+                    loc[el.get(label_a)] = local
+            elif tag == "labelArc":
+                arcs.append((el.get(from_a), el.get(to_a)))
+            elif tag == "label":
+                res.setdefault(el.get(label_a), []).append(
+                    (el.get(role_a) or "", el.get(cls._XML_LANG) or "", (el.text or "").strip())
+                )
+        result: Dict[str, str] = {}
+        for frm, to in arcs:
+            local = loc.get(frm)
+            if not local:
+                continue
+            best = cls._pick_label(res.get(to, []))
+            if best and local not in result:
+                result[local] = best
+        return result
+
+    @classmethod
+    def _pick_label(cls, candidates: List[tuple]) -> Optional[str]:
+        """ラベル候補から和名を選ぶ (日本語・標準 role を優先)."""
+        def score(c) -> tuple:
+            role, lang, text = c
+            return (lang == "ja", role == cls._STD_LABEL_ROLE, bool(text))
+        usable = [c for c in candidates if c[2]]
+        if not usable:
+            return None
+        return max(usable, key=score)[2]
 
     # 相対年度 → 当期からの年差 (fy 算出用)。
     _REL_OFFSET = {"当期": 0, "当期末": 0, "前期": 1, "前期末": 1, "前々期": 2, "前々期末": 2,

@@ -60,13 +60,15 @@ def _segment_table(facts: List[FinancialFact]) -> str:
     if not seg:
         return ""
     labels = sorted({f.label for f in seg})
+    # 和名があれば表示に使う (無い member は英語 ID をそのまま)。
+    display = {f.dimension: (f.dimension_label or f.dimension) for f in seg}
     by_seg: Dict[Tuple[str, int], Dict[str, float]] = {}
     for f in seg:
         by_seg.setdefault((f.dimension, f.fy), {})[f.label] = f.value
     headers = ["セグメント", "年度"] + labels
     rows = []
-    for (dim, fy), vals in sorted(by_seg.items(), key=lambda x: (x[0][0] or "", x[0][1] or 0)):
-        rows.append([dim, fy if fy is not None else ""] + [_fmt(vals.get(l)) for l in labels])
+    for (dim, fy), vals in sorted(by_seg.items(), key=lambda x: (display.get(x[0][0]) or "", x[0][1] or 0)):
+        rows.append([display.get(dim, dim), fy if fy is not None else ""] + [_fmt(vals.get(l)) for l in labels])
     return "## 事業別/地域別セグメント\n\n" + _md_table(headers, rows)
 
 

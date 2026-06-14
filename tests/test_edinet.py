@@ -163,6 +163,82 @@ def test_segment_from_context_real_patterns():
     assert f("CurrentYearDuration") is None
 
 
+LAB_XML = """<?xml version="1.0" encoding="utf-8"?>
+<link:linkbase xmlns:link="http://www.xbrl.org/2003/linkbase"
+               xmlns:xlink="http://www.w3.org/1999/xlink">
+  <link:labelLink>
+    <link:loc xlink:type="locator"
+        xlink:href="doc.xsd#jpcrp030000-asr_E00436-000_SeasoningsAndFoodsReportableSegmentMember"
+        xlink:label="seg1"/>
+    <link:labelArc xlink:type="arc" xlink:from="seg1" xlink:to="lab_seg1_std"/>
+    <link:labelArc xlink:type="arc" xlink:from="seg1" xlink:to="lab_seg1_en"/>
+    <link:label xlink:type="resource" xlink:label="lab_seg1_en" xml:lang="en"
+        xlink:role="http://www.xbrl.org/2003/role/label">Seasonings and Foods</link:label>
+    <link:label xlink:type="resource" xlink:label="lab_seg1_std" xml:lang="ja"
+        xlink:role="http://www.xbrl.org/2003/role/label">調味料・食品</link:label>
+    <!-- member ではない通常要素は対象外 -->
+    <link:loc xlink:type="locator" xlink:href="doc.xsd#jpcrp_cor_NetSales" xlink:label="ns"/>
+    <link:labelArc xlink:type="arc" xlink:from="ns" xlink:to="lab_ns"/>
+    <link:label xlink:type="resource" xlink:label="lab_ns" xml:lang="ja"
+        xlink:role="http://www.xbrl.org/2003/role/label">売上高</link:label>
+  </link:labelLink>
+</link:linkbase>
+"""
+
+
+def test_parse_label_linkbase():
+    m = EdinetProvider._parse_label_linkbase(LAB_XML.encode("utf-8"))
+    # member のみ・日本語の標準ラベルを採用 (英語より優先)
+    assert m == {"SeasoningsAndFoodsReportableSegmentMember": "調味料・食品"}
+
+
+def _seasonings_csv_zip() -> bytes:
+    header = ["要素ID", "項目名", "コンテキストID", "相対年度", "連結・個別", "期間・時点", "ユニットID", "単位", "値"]
+    rows = [
+        header,
+        ["jpcrp_cor:NetSales", "売上高", "CurrentYearDuration", "当期", "連結", "期間", "JPY", "円", "13000000000000"],
+        # 接頭辞付き member のセグメント行 (実データ形)
+        ["jpcrp_cor:NetSales", "売上高",
+         "CurrentYearDuration_jpcrp030000-asr_E00436-000SeasoningsAndFoodsReportableSegmentMember",
+         "当期", "連結", "期間", "JPY", "円", "5000000000000"],
+        # ラベルに無い member (和名フォールバック確認用)
+        ["jpcrp_cor:NetSales", "売上高", "CurrentYearDuration_OtherReportableSegmentsMember",
+         "当期", "連結", "期間", "JPY", "円", "2000000000000"],
+    ]
+    text = "\r\n".join("\t".join(r) for r in rows)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("XBRL_TO_CSV/seg.csv", text.encode("utf-16"))
+    return buf.getvalue()
+
+
+def test_fetch_financials_applies_segment_labels():
+    """セグメント行に和名 (dimension_label) が付与される (type=1 を解析)."""
+    seg_zip = _seasonings_csv_zip()
+    lab_zip_buf = io.BytesIO()
+    with zipfile.ZipFile(lab_zip_buf, "w") as zf:
+        zf.writestr("XBRL/PublicDoc/doc_lab.xml", LAB_XML.encode("utf-8"))
+    lab_zip = lab_zip_buf.getvalue()
+
+    def transport(url, params, headers, timeout):
+        if url.endswith("documents.json"):
+            return FakeResponse(200, DOC_LIST)
+        if "/documents/S100ABCD" in url:
+            return FakeResponse(200, content=lab_zip if params.get("type") == "1" else seg_zip)
+        return FakeResponse(404, None)
+
+    http = HttpClient("ua", rate_limit_per_sec=0, transport=transport)
+    prov = EdinetProvider(http, api_key="k", lookback_days=1)
+    company = prov.search("トヨタ")[0]
+    data = prov.fetch_financials(company)
+    # 接頭辞付き member -> クリーンな dimension + 和名
+    seasonings = next(f for f in data.facts if f.dimension == "SeasoningsAndFoodsReportableSegmentMember")
+    assert seasonings.dimension_label == "調味料・食品"
+    # ラベルに無い member は和名なし (英語 ID フォールバック)
+    other = next(f for f in data.facts if f.dimension == "OtherReportableSegmentsMember")
+    assert other.dimension_label is None
+
+
 def test_consolidation_derivation():
     """連結・個別列が 'その他' でもコンテキストの NonConsolidatedMember から個別を判定する."""
     d = EdinetProvider._consolidation

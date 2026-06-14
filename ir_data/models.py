@@ -70,6 +70,8 @@ class FinancialRecord(Base):
     filed: Mapped[str | None] = mapped_column(String(16), nullable=True)
     # 事業別/地域別セグメント (XBRL ディメンション)。NULL = 連結合計。
     dimension: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    # セグメント member の和名 (ラベルリンクベース由来)。表示用で一意キー外。
+    dimension_label: Mapped[str | None] = mapped_column(String(512), nullable=True)
     consolidation: Mapped[str | None] = mapped_column(String(16), nullable=True)
     context_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
     source: Mapped[str] = mapped_column(String(32))
