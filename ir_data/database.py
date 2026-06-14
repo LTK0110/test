@@ -49,20 +49,21 @@ class Repository:
         return company
 
     def upsert_facts(self, session: Session, company: Company, facts) -> int:
-        # 既存ファクトを一意キーで索引化
+        # 既存ファクトを一意キーで索引化 (セグメント次元を含む)
         existing = {
-            (f.concept, f.unit, f.fy, f.period_end): f
+            (f.concept, f.unit, f.fy, f.period_end, f.dimension): f
             for f in session.scalars(
                 select(FinancialRecord).where(FinancialRecord.company_id == company.id)
             )
         }
         count = 0
         for fact in facts:
-            k = (fact.concept, fact.unit, fact.fy, fact.period_end)
+            k = (fact.concept, fact.unit, fact.fy, fact.period_end, fact.dimension)
             rec = existing.get(k)
             if rec is None:
                 rec = FinancialRecord(company_id=company.id, concept=fact.concept,
-                                      unit=fact.unit, fy=fact.fy, period_end=fact.period_end)
+                                      unit=fact.unit, fy=fact.fy, period_end=fact.period_end,
+                                      dimension=fact.dimension)
                 session.add(rec)
             rec.label = fact.label
             rec.value = fact.value

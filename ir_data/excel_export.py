@@ -44,6 +44,7 @@ def _facts_frame(results: List[CompanyData]) -> pd.DataFrame:
                 "fy": f.fy,
                 "fp": f.fp,
                 "period_end": f.period_end,
+                "segment": f.dimension,  # None=連結合計、値あり=事業別/地域別
                 "form": f.form,
                 "filed": f.filed,
                 "source": f.source,
@@ -52,11 +53,14 @@ def _facts_frame(results: List[CompanyData]) -> pd.DataFrame:
 
 
 def _pivot_frame(facts: pd.DataFrame) -> pd.DataFrame:
-    """主要指標 × 年度のピボット (概観用)."""
+    """主要指標 × 年度のピボット (連結合計のみ、概観用)."""
     if facts.empty:
         return pd.DataFrame()
-    pivot = facts.pivot_table(
-        index=["name", "concept", "unit"],
+    consolidated = facts[facts["segment"].isna()]
+    if consolidated.empty:
+        return pd.DataFrame()
+    pivot = consolidated.pivot_table(
+        index=["name", "label", "unit"],
         columns="fy",
         values="value",
         aggfunc="last",
@@ -64,11 +68,28 @@ def _pivot_frame(facts: pd.DataFrame) -> pd.DataFrame:
     return pivot.reset_index()
 
 
+def _segments_frame(facts: pd.DataFrame) -> pd.DataFrame:
+    """事業別/地域別セグメント × 指標のピボット (セグメント行のみ)."""
+    if facts.empty:
+        return pd.DataFrame()
+    seg = facts[facts["segment"].notna()]
+    if seg.empty:
+        return pd.DataFrame()
+    pivot = seg.pivot_table(
+        index=["name", "fy", "segment"],
+        columns="label",
+        values="value",
+        aggfunc="last",
+    )
+    return pivot.reset_index()
+
+
 def export_to_excel(results: List[CompanyData], path: str) -> str:
-    """企業一覧・財務明細・ピボットの 3 シート構成で Excel を書き出す."""
+    """企業一覧・財務明細・連結サマリ・事業別の 4 シート構成で Excel を書き出す."""
     companies = _companies_frame(results)
     facts = _facts_frame(results)
     pivot = _pivot_frame(facts)
+    segments = _segments_frame(facts)
 
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         (companies if not companies.empty else pd.DataFrame([{"info": "no companies"}])).to_excel(
@@ -79,4 +100,6 @@ def export_to_excel(results: List[CompanyData], path: str) -> str:
         )
         if not pivot.empty:
             pivot.to_excel(writer, sheet_name="Summary", index=False)
+        if not segments.empty:
+            segments.to_excel(writer, sheet_name="Segments", index=False)
     return path

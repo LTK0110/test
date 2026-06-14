@@ -49,7 +49,7 @@ class FinancialRecord(Base):
     __tablename__ = "financial_records"
     __table_args__ = (
         UniqueConstraint(
-            "company_id", "concept", "unit", "fy", "period_end",
+            "company_id", "concept", "unit", "fy", "period_end", "dimension",
             name="uq_fact",
         ),
     )
@@ -66,6 +66,8 @@ class FinancialRecord(Base):
     period_end: Mapped[str | None] = mapped_column(String(16), nullable=True)
     form: Mapped[str | None] = mapped_column(String(32), nullable=True)
     filed: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # 事業別/地域別セグメント (XBRL ディメンション)。NULL = 連結合計。
+    dimension: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True)
     source: Mapped[str] = mapped_column(String(32))
 
     company: Mapped["Company"] = relationship(back_populates="facts")

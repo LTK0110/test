@@ -150,6 +150,8 @@ class EdinetProvider(FinancialDataProvider):
             ci_val = idx.get("値", 8)
             ci_eid = idx.get("要素ID", 0)
             ci_period = idx.get("相対年度")
+            ci_context = idx.get("コンテキストID")
+            ci_cons = idx.get("連結・個別")
             for row in rows[1:]:
                 if len(row) <= max(ci_item, ci_val):
                     continue
@@ -160,9 +162,14 @@ class EdinetProvider(FinancialDataProvider):
                 if ci_period is not None and ci_period < len(row):
                     if row[ci_period].strip() not in ("当期", "当期末", ""):
                         continue
+                # 個別 (非連結) は連結合計と衝突するため除外 (IR は連結が基本)。
+                if ci_cons is not None and ci_cons < len(row) and row[ci_cons].strip() == "個別":
+                    continue
                 value = self._to_float(row[ci_val])
                 if value is None:
                     continue
+                context = row[ci_context].strip() if ci_context is not None and ci_context < len(row) else ""
+                dimension = self._segment_from_context(context)
                 facts.append(
                     FinancialFact(
                         cik=cik,
@@ -174,10 +181,27 @@ class EdinetProvider(FinancialDataProvider):
                         fp="FY",
                         period_end=period_end,
                         form="有価証券報告書",
+                        dimension=dimension,
                         source=self.name,
                     )
                 )
         return facts
+
+    @staticmethod
+    def _segment_from_context(context: str) -> Optional[str]:
+        """コンテキストID から事業別/地域別セグメントの member を抽出する.
+
+        例: 'CurrentYearDuration_ImagingReportableSegmentsMember' -> その member。
+        連結/個別の区分のみ、または member 無し (全社合計) は None を返す。
+        """
+        if not context or "_" not in context:
+            return None
+        member = context.split("_", 1)[1]
+        if "Member" not in member:
+            return None
+        if member in ("ConsolidatedMember", "NonConsolidatedMember"):
+            return None
+        return member
 
     @staticmethod
     def _decode(data: bytes) -> str:

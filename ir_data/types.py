@@ -45,10 +45,17 @@ class FinancialFact:
     period_end: Optional[str] = None
     form: Optional[str] = None
     filed: Optional[str] = None
+    # 事業別/地域別などのセグメント次元 (XBRL ディメンション member)。
+    # None = 連結合計 (全社)、値あり = 当該セグメントの内訳。
+    dimension: Optional[str] = None
     source: str = "sec_edgar"
 
     def key(self) -> str:
-        return f"{self.source}:{self.cik}:{self.concept}:{self.unit}:{self.fy}:{self.fp}:{self.period_end}"
+        return f"{self.source}:{self.cik}:{self.concept}:{self.unit}:{self.fy}:{self.fp}:{self.period_end}:{self.dimension or ''}"
+
+    @property
+    def is_segment(self) -> bool:
+        return self.dimension is not None
 
 
 @dataclass

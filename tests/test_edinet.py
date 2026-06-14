@@ -90,3 +90,50 @@ def test_edinet_fetch_parses_csv_current_year_only():
     rev = next(f for f in data.facts if f.label == "売上高")
     assert rev.value == 45095325000000.0
     assert rev.fy == 2024 and rev.fp == "FY"
+    # 連結合計なので segment は None
+    assert all(f.dimension is None for f in data.facts)
+
+
+def _segment_csv_zip() -> bytes:
+    header = ["要素ID", "項目名", "コンテキストID", "相対年度", "連結・個別", "期間・時点", "ユニットID", "単位", "値"]
+    rows = [
+        header,
+        # 連結合計
+        ["jpcrp_cor:NetSales", "売上高", "CurrentYearDuration", "当期", "連結", "期間", "JPY", "円", "13000000000000"],
+        # 事業別セグメント
+        ["jpcrp_cor:NetSales", "売上高", "CurrentYearDuration_ImagingReportableSegmentsMember", "当期", "連結", "期間", "JPY", "円", "3000000000000"],
+        ["jpcrp_cor:NetSales", "売上高", "CurrentYearDuration_MedicalReportableSegmentsMember", "当期", "連結", "期間", "JPY", "円", "5000000000000"],
+        # 個別 (除外されるべき)
+        ["jpcrp_cor:NetSales", "売上高", "CurrentYearDuration_NonConsolidatedMember", "当期", "個別", "期間", "JPY", "円", "999"],
+    ]
+    text = "\r\n".join("\t".join(r) for r in rows)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("XBRL_TO_CSV/seg.csv", text.encode("utf-16"))
+    return buf.getvalue()
+
+
+def test_edinet_segment_extraction():
+    seg_zip = _segment_csv_zip()
+
+    def transport(url, params, headers, timeout):
+        if url.endswith("documents.json"):
+            return FakeResponse(200, DOC_LIST)
+        if "/documents/S100ABCD" in url:
+            return FakeResponse(200, content=seg_zip)
+        return FakeResponse(404, None)
+
+    http = HttpClient("ua", rate_limit_per_sec=0, transport=transport)
+    prov = EdinetProvider(http, api_key="k", lookback_days=1)
+    company = prov.search("トヨタ")[0]
+    data = prov.fetch_financials(company)
+
+    # 連結合計 1 + セグメント 2 = 3 (個別は除外)
+    assert len(data.facts) == 3
+    consolidated = [f for f in data.facts if f.dimension is None]
+    segments = [f for f in data.facts if f.dimension]
+    assert len(consolidated) == 1 and consolidated[0].value == 13000000000000.0
+    seg_names = {f.dimension for f in segments}
+    assert seg_names == {"ImagingReportableSegmentsMember", "MedicalReportableSegmentsMember"}
+    # 個別 (999) は含まれない
+    assert all(f.value != 999.0 for f in data.facts)
